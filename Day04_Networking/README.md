@@ -60,17 +60,36 @@
    ```bash
    docker run -d --name my-web -p 8082:80 -v $(pwd)/index.html:/usr/share/nginx/html/index.html nginx
    ```
+
+   **💡 Giải thích chi tiết câu lệnh:**
+   *   `-d`: Chạy container ở chế độ nền (Detached mode).
+   *   `--name my-web`: Đặt tên dễ nhớ cho container.
+   *   `-p 8082:80`: Ánh xạ cổng (Port mapping). Truy cập tại `localhost:8082` trên máy host sẽ dẫn vào cổng `80` của Nginx trong container.
+   *   `-v $(pwd)/index.html:/...`: **Bind Mount**. Gắn trực tiếp file `index.html` từ thư mục hiện tại (`pwd`) vào thư mục mặc định của Nginx. 
+       *   *Cơ chế:* Mọi thay đổi trên file ở máy host sẽ phản ánh ngay lập tức vào container mà không cần build lại Image.
+
 3. Sửa file `index.html` ở máy host và refresh trình duyệt `localhost:8082`.
+
+---
+
+## 🔍 Kỹ năng Debug Network nâng cao
+
+Khi các container không kết nối được với nhau, bạn có thể sử dụng các công cụ sau bên trong container để kiểm tra:
+
+1.  **`nslookup <tên_container>`**: Kiểm tra xem Docker DNS có đang hoạt động không (có giải quyết tên sang IP được không).
+    *   *Lưu ý:* Nếu không có sẵn, cài bằng: `apt-get install -y dnsutils` (Ubuntu) hoặc `apk add bind-tools` (Alpine).
+2.  **`ping -c 4 <tên_container_hoặc_IP>`**: Kiểm tra xem đường truyền vật lý giữa các container có thông suốt không.
+3.  **`curl -v http://<tên_container>:<port>`**: Kiểm tra kết nối ở tầng ứng dụng (hiển thị chi tiết quá trình bắt tay HTTP).
 
 ---
 
 ## 📝 Câu hỏi suy ngẫm
 
 1. Tại sao không nên dùng IP của container để các container khác kết nối tới?
-   > Trả lời:
+   > Trả lời: Vì IP của container không cố định; mỗi khi container khởi động lại, Docker có thể cấp một IP mới. Việc dùng tên container thông qua User-defined Network (DNS) sẽ giúp kết nối luôn ổn định.
 
 2. Lệnh nào dùng để kiểm tra chi tiết các container đang nằm trong một Network?
-   > Trả lời:
+   > Trả lời: Lệnh `docker network inspect <tên_mạng>`.
 
 3. Nếu bạn xoá một Volume bằng lệnh `docker volume rm`, dữ liệu bên trong có khôi phục lại được không?
-   > Trả lời:
+   > Trả lời: Không, việc xóa Volume sẽ xóa vĩnh viễn dữ liệu được lưu trữ trong đó khỏi ổ cứng của máy host.

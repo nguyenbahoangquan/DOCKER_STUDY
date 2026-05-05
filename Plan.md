@@ -365,9 +365,9 @@ networks:
 ## 🗓️ DAY 6 – Debug & Optimization (Level Up)
 
 ### 🎯 Mục tiêu
-- Debug container hiệu quả với logs, inspect, exec
-- Multi-stage build: giảm image từ ~800MB xuống ~200MB
-- Hiểu layer caching và sắp xếp Dockerfile đúng cách
+- Thành thạo Debug workflow chuyên nghiệp (logs, inspect, exec, stats)
+- Multi-stage build: Giảm dung lượng image cực mạnh (Ví dụ: Java 800MB -> 150MB)
+- Tối ưu hóa Layer Caching để tăng tốc độ build 2x-10x
 
 ### 📚 Debug Workflow
 **Container không khởi động được**
@@ -493,6 +493,47 @@ jobs:
 - **Bài 1**: Tạo tài khoản Docker Hub. Build image Java app, tag và push lên Docker Hub.
 - **Bài 2**: Tạo GitHub repo, setup GitHub Actions tự động build và push image.
 - **Bài 3**: Sửa Dockerfile thêm non-root user. Cài Trivy và scan image.
+
+---
+
+## 🗓️ DAY 8 – CI/CD Advanced: Multi-environment, Health Checks & Deployment Strategies
+
+### 🎯 Mục tiêu
+- Xây dựng pipeline CI/CD đa môi trường (Dev → Staging → Production) với GitHub Actions.
+- Hiểu và áp dụng Health Check trong Docker và Docker Compose (HEALTHCHECK, depends_on condition).
+- Thực hành chiến lược Deploy: Rolling Update, Blue-Green, Canary.
+- Tích hợp auto-test vào pipeline để đảm bảo chỉ deploy code đúng.
+- Áp dụng Docker Compose cho môi trường Production (health check, Nginx router, multi-service).
+
+### 📚 Kiến thức cần nắm
+#### Health Check trong Docker
+- `HEALTHCHECK` trong Dockerfile: Kiểm tra ứng dụng bên trong container có "khỏe" không.
+- Trạng thái: `starting` → `healthy` → `unhealthy`.
+- Docker KHÔNG tự kill container khi unhealthy — cần orchestrator (Swarm, K8s).
+- `curl -f` là bắt buộc trong HEALTHCHECK CMD để fail khi HTTP >= 400.
+
+#### Docker Compose healthcheck + depends_on
+- `condition: service_healthy` — đợi service pass healthcheck mới start.
+- `condition: service_started` — chỉ đợi container start, không đảm bảo app sẵn sàng.
+- `start_period` — thời gian chờ trước khi bắt đầu check (tránh false-unhealthy).
+
+#### Multi-environment Pipeline (GitHub Actions)
+- `needs` — tạo chuỗi phụ thuộc giữa jobs (test → build → deploy).
+- `environment` — gán job với GitHub Environment, hỗ trợ protection rules và secrets riêng.
+- `if: always()` — step luôn chạy kể cả khi bước trước fail (dùng cho cleanup).
+- `cache-from: type=gha` — cache Docker build layers trên GitHub Actions.
+
+#### Chiến lược Deployment
+- **Rolling Update**: Thay thế container cũ từng cái một. Zero downtime nhưng rollback chậm.
+- **Blue-Green**: 2 version chạy song song. Switch traffic bằng Nginx. Zero downtime, rollback tức thì.
+- **Canary**: Deploy cho % nhỏ traffic. Monitor rồi tăng dần. An toàn nhất nhưng phức tạp nhất.
+
+### 🔥 Bài tập
+- **Bài 1**: Viết Dockerfile với HEALTHCHECK, quan sát starting → healthy → unhealthy.
+- **Bài 2**: Docker Compose multi-service với healthcheck + depends_on condition: service_healthy.
+- **Bài 3**: Tạo GitHub Actions pipeline multi-environment (Dev, Staging, Prod) với manual approval.
+- **Bài 4**: Thực hành Blue-Green Deployment với Nginx router + docker-compose.
+- **Bài 5**: Tổng hợp auto-test script + Trivy + production-ready Dockerfile.
 
 ---
 
