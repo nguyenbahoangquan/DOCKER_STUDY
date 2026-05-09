@@ -1,0 +1,45 @@
+name: Build and Push Docker Image
+
+# Trigger: Chay khi push code len branch main
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Buoc 1: Lay code tu repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Buoc 2: Cai dat Docker Buildx (ho tro build nang cao)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Buoc 3: Dang nhap Docker Hub bang Secrets
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      # Buoc 4: Build va Push image
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./Day07_Production/Bai_1
+          push: true
+          # Tag tu dong: latest + commit SHA short
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/my-python-app:latest
+            ${{ secrets.DOCKER_USERNAME }}/my-python-app:sha-${{ github.sha }}
+
+      # Buoc 5: Scan CVE voi Trivy (FAIL pipeline neu co CRITICAL)
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKER_USERNAME }}/my-python-app:latest
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
