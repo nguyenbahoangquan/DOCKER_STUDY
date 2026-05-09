@@ -1,4 +1,4 @@
-FROM python:3.11-alpine
+FROM python:3.11.9-alpine3.19
 WORKDIR /app
 RUN apk upgrade --no-cache
 RUN pip install --upgrade pip jaraco.context>=>6.1.0 wheel>=0.46.2
