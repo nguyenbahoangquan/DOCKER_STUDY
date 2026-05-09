@@ -248,9 +248,9 @@ else
 fi
 
 # 3.3. Kiem tra file .trivyignore
-if [ -f "./Bai_2/.trivyignore" ]; then
+if [ -f "./Bai_3/.trivyignore" ]; then
     pass "3.3. File .trivyignore da ton tai."
-    IGNORE_COUNT=$(grep -c "^CVE-" "./Bai_2/.trivyignore" 2>/dev/null || echo "0")
+    IGNORE_COUNT=$(grep -c "^CVE-" "./Bai_3/.trivyignore" 2>/dev/null || echo "0")
     info "3.3.1. So CVE duoc bo qua trong .trivyignore: $IGNORE_COUNT"
 else
     info "3.3. Chua tao file .trivyignore. Day la optional nhung huu ich khi co CVE chua co patch."
@@ -264,6 +264,110 @@ if command -v trivy &>/dev/null; then
         trivy image --severity CRITICAL,HIGH --no-progress "$SECURE_IMAGE" 2>/dev/null | tail -n 20
     else
         info "3.4. Chua build image 'my-python-app:secure'. Khong the scan."
+    fi
+fi
+
+
+# =============================================
+# BAI 3.5: Fix CVE — Sua Dockerfile de Giam Severity
+# =============================================
+echo -e "${BLUE}--- Bai 3.5: Fix CVE — Sua Dockerfile de Giam Severity ---${NC}"
+
+# 3.5.1. Kiem tra thu muc Bai_3_5
+if [ -d "./Bai_3_5" ]; then
+    pass "3.5.1. Thu muc Bai_3_5 da ton tai."
+else
+    fail "3.5.1. Khong tim thay thu muc Bai_3_5." "Tao thu muc Bai_3_5 va cac file theo huong dan README."
+fi
+
+# 3.5.2. Kiem tra Dockerfile.vulnerable
+DOCKERFILE_VULN="./Bai_3_5/Dockerfile.vulnerable"
+if [ -f "$DOCKERFILE_VULN" ]; then
+    pass "3.5.2. File Dockerfile.vulnerable da ton tai."
+
+    # Kiem tra KHONG co apk upgrade (la image co CVE)
+    if ! grep -q "apk upgrade" "$DOCKERFILE_VULN"; then
+        pass "3.5.2.1. Dockerfile.vulnerable KHONG co apk upgrade — dung la image co loi Hong."
+    else
+        warn "3.5.2.1. Dockerfile.vulnerable co apk upgrade — khong phai image de demo CVE. Bo dong nay ra."
+    fi
+else
+    fail "3.5.2. Khong tim thay Dockerfile.vulnerable." "Tao file Dockerfile.vulnerable trong Bai_3_5 theo huong dan README."
+fi
+
+# 3.5.3. Kiem tra Dockerfile.fixed
+DOCKERFILE_FIXED="./Bai_3_5/Dockerfile.fixed"
+if [ -f "$DOCKERFILE_FIXED" ]; then
+    pass "3.5.3. File Dockerfile.fixed da ton tai."
+
+    # Kiem tra apk upgrade
+    if grep -q "apk upgrade" "$DOCKERFILE_FIXED"; then
+        pass "3.5.3.1. Dockerfile.fixed co 'apk upgrade' — fix CVE OS packages."
+    else
+        fail "3.5.3.1. Dockerfile.fixed THIEU 'apk upgrade'." "Them 'RUN apk upgrade --no-cache' de patch security vulnerabilities."
+    fi
+
+    # Kiem tra pin base image version
+    if grep -qE "FROM python:[0-9]+\.[0-9]+\.[0-9]+-alpine[0-9]" "$DOCKERFILE_FIXED"; then
+        PINNED_FROM=$(grep "^FROM" "$DOCKERFILE_FIXED" | head -n 1)
+        pass "3.5.3.2. Base image da pin version cu the: $PINNED_FROM"
+    else
+        warn "3.5.3.2. Base image chua pin version cu the (vd: python:3.11.9-alpine3.19). Nen pin de dam bao reproducible build."
+    fi
+
+    # Kiem tra non-root user
+    if grep -q "^USER " "$DOCKERFILE_FIXED"; then
+        pass "3.5.3.3. Dockerfile.fixed co non-root user."
+    else
+        warn "3.5.3.3. Dockerfile.fixed thieu USER — nen them non-root user (best practice Production)."
+    fi
+else
+    fail "3.5.3. Khong tim thay Dockerfile.fixed." "Tao file Dockerfile.fixed trong Bai_3_5 theo huong dan README."
+fi
+
+# 3.5.4. Kiem tra image vulnerable va fixed da build
+VULN_IMAGE=$(sudo docker images --format "{{.Repository}}:{{.Tag}}" | grep "vulnerable" | head -n 1)
+FIXED_IMAGE=$(sudo docker images --format "{{.Repository}}:{{.Tag}}" | grep "fixed" | head -n 1)
+
+if [ ! -z "$VULN_IMAGE" ]; then
+    pass "3.5.4. Image vulnerable da duoc build: $VULN_IMAGE"
+else
+    info "3.5.4. Chua build image vulnerable. Chay: sudo docker build -t my-python-app:vulnerable -f Bai_3_5/Dockerfile.vulnerable Bai_3_5/"
+fi
+
+if [ ! -z "$FIXED_IMAGE" ]; then
+    pass "3.5.5. Image fixed da duoc build: $FIXED_IMAGE"
+else
+    info "3.5.5. Chua build image fixed. Chay: sudo docker build -t my-python-app:fixed -f Bai_3_5/Dockerfile.fixed Bai_3_5/"
+fi
+
+# 3.5.6. So sanh CVE giua 2 image (neu ca 2 da build va co trivy)
+if [ ! -z "$VULN_IMAGE" ] && [ ! -z "$FIXED_IMAGE" ] && command -v trivy &>/dev/null; then
+    echo -e "      ${CYAN}[CVE COMPARISON]${NC} Dang so sanh CVE giua 2 image..."
+
+    VULN_CRIT=$(trivy image --format json --severity CRITICAL,HIGH "$VULN_IMAGE" 2>/dev/null | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(sum(1 for r in d.get('Results',[]) for v in r.get('Vulnerabilities',[]) if v.get('Severity') in ['CRITICAL','HIGH']))
+except: print('0')" 2>/dev/null)
+
+    FIXED_CRIT=$(trivy image --format json --severity CRITICAL,HIGH "$FIXED_IMAGE" 2>/dev/null | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(sum(1 for r in d.get('Results',[]) for v in r.get('Vulnerabilities',[]) if v.get('Severity') in ['CRITICAL','HIGH']))
+except: print('0')" 2>/dev/null)
+
+    if [ ! -z "$VULN_CRIT" ] && [ ! -z "$FIXED_CRIT" ]; then
+        if [ "$FIXED_CRIT" -lt "$VULN_CRIT" ]; then
+            pass "3.5.6. CVE CRITICAL+HIGH giam tu $VULN_CRIT xuong $FIXED_CRIT sau khi fix Dockerfile."
+        elif [ "$FIXED_CRIT" -eq "$VULN_CRIT" ]; then
+            warn "3.5.6. CVE CRITICAL+HIGH khong giam ($VULN_CRIT == $FIXED_CRIT). Kiem tra lai Dockerfile.fixed co apk upgrade dung chua."
+        else
+            fail "3.5.6. CVE CRITICAL+HIGH TANG tu $VULN_CRIT len $FIXED_CRIT — Dieu nay bat thuong." "Kiem tra lai Dockerfile.fixed, co the base image moi co them CVE."
+        fi
+        info "      Vulnerable image: $VULN_CRIT CVE (CRITICAL+HIGH) | Fixed image: $FIXED_CRIT CVE (CRITICAL+HIGH)"
     fi
 fi
 
@@ -496,15 +600,15 @@ echo -e "${BLUE}--- Cau hoi suy ngam ---${NC}"
 
 README_FILE="./README.md"
 if [ -f "$README_FILE" ]; then
-    # Dem cac cau tra loi da dien (khong con trong sau "> Tra loi:")
-    ANSWER_COUNT=$(grep -c "> Tra loi:" "$README_FILE")
-    EMPTY_COUNT=$(grep -c "> Tra loi: *$" "$README_FILE")
+    # Dem cac cau tra loi da dien (khong con trong sau "> Trả lời:")
+    ANSWER_COUNT=$(grep -cE "> Trả lời:|> Tra loi:" "$README_FILE")
+    EMPTY_COUNT=$(grep -cE "> Trả loi: *$|> Tra loi: *$" "$README_FILE")
     FILLED_COUNT=$((ANSWER_COUNT - EMPTY_COUNT))
 
     if [ "$FILLED_COUNT" -ge 3 ]; then
         pass "Da tra loi $FILLED_COUNT/$ANSWER_COUNT cau hoi suy ngam."
     else
-        info "Moi tra loi $FILLED_COUNT/$ANSWER_COUNT cau hoi. Hay dien them vao phan '> Tra loi:' trong README."
+        info "Moi tra loi $FILLED_COUNT/$ANSWER_COUNT cau hoi. Hay dien them vao phan '> Trả lời:' trong README."
     fi
 fi
 

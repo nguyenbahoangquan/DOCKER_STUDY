@@ -186,6 +186,41 @@ ENV APP_VERSION=v2.0.0-secure
 EXPOSE 8080
 
 CMD ["python", "app.py"]
+#  Giải thích từng dòng, theo thứ tự quan trọng nhất là thứ tự thực hiện:
+#   ---                                                                                                                                               
+#   1. FROM python:3.11-alpine                                                                                                                        
+#   Dùng image Python Alpine làm nền. Alpine = nhỏ gọn (~50MB thay vì ~900MB).
+#   2. WORKDIR /app
+#   Tạo và vào thư mục /app bên trong container.
+#   3. RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+#   Tạo 1 group appgroup và 1 user appuser thuộc group đó.
+#   - -S = system user (không có password, không có home dir — nhẹ và đủ dùng)
+#   4. COPY app.py .
+#   Copy file app.py từ host vào /app trong container. Lúc này file thuộc quyền root vì vẫn đang chạy với root.
+#   5. RUN chown -R appuser:appgroup /app
+#   Chuyển quyền sở hữu thư mục /app (và tất cả file bên trong) từ root sang appuser.
+#   6. USER appuser
+#   Từ dòng này trở đi, mọi lệnh (RUN, CMD, ENTRYPOINT) đều chạy dưới quyền appuser, không còn là root.
+#   7. RUN whoami
+#   Chạy thử để xác nhận — kết quả sẽ là appuser (in ra trong build log).
+#   8-10. ENV, EXPOSE, CMD
+#   - Đặt biến môi trường APP_VERSION=v2.0.0-secure
+#   - Khai báo port 8080
+#   - Chạy app khi container khởi động
+#   ---
+#   Tại sao thứ tự QUAN TRỌNG?
+#   COPY app.py .          ← Bước 4: file thuộc root
+#   RUN chown -R ...       ← Bước 5: chuyển quyền cho appuser
+#   USER appuser           ← Bước 6: chuyển sang chạy bằng appuser
+#   Nếu đổi thứ tự sai — đặt USER appuser trước chown:
+#   - appuser không có quyền chown file → lỗi!
+#   - Chỉ root mới có thể thay đổi quyền file
+#   Nếu bỏ luôn chown:
+#   - File app.py vẫn thuộc root, appuser có thể đọc nhưng không thể ghi → app có thể lỗi nếu cần ghi file
+#   ---
+#   Tóm tắt dễ nhớ: COPY → CHOWN → USER — copy file trước, cấp quyền sau, rồi mới chuyển user. Giống như bạn đưa chìa khóa nhà cho người thuê trước
+#   khi họ vào ở.
+
 ```
 
 > Copy `app.py` tu Bai_1 sang Bai_2: `cp Bai_1/app.py Bai_2/app.py`
@@ -265,7 +300,13 @@ sudo apt-get install -y wget apt-transport-https gnupg lsb-release
 
 wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
 
-echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+# QUAN TRONG: Phai co URL https://aquasecurity.github.io/trivy-repo/deb truoc $(lsb_release -sc)
+# Neu thieu URL, apt se bao loi: "Malformed entry (URI parse)"
+echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+
+# Xac nhan noi dung file da dung (phai thay URL trong dong deb)
+cat /etc/apt/sources.list.d/trivy.list
+# Ket qua mong doi: deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb noble main
 
 sudo apt-get update
 sudo apt-get install -y trivy
@@ -305,11 +346,11 @@ trivy image python:3.11-alpine
 Trong thuc te, mot so CVE chua co patch. Ban co the tam bo qua bang file `.trivyignore`:
 ```bash
 # Tao file .trivyignore liet ke CVE ID can bo qua
-echo "# CVE chua co patch, tam bo qua" > Bai_2/.trivyignore
-echo "CVE-XXXX-XXXXX" >> Bai_2/.trivyignore
+echo "# CVE chua co patch, tam bo qua" > Bai_3/.trivyignore
+echo "CVE-XXXX-XXXXX" >> Bai_3/.trivyignore
 
 # Scan lai voi ignore file
-trivy image --ignorefile Bai_2/.trivyignore my-python-app:secure
+trivy image --ignorefile Bai_3/.trivyignore my-python-app:secure
 ```
 
 **Diem quan trong can hieu**:
@@ -317,6 +358,221 @@ trivy image --ignorefile Bai_2/.trivyignore my-python-app:secure
 - **Base image nho = It CVE**: `alpine` < `slim` < `full`. Day la ly do Day 6 khuyen dung multi-stage build voi base image nho.
 - **Trivy scan LAYER**: Neu ban dung multi-stage build (Day 6), chi stage cuoi cung duoc scan — stage build bi loai bo, khong anh huong bao mat.
 - **CI/CD tich hop**: Trong GitHub Actions, co the them buoc `trivy image` de fail pipeline neu phat hien CVE CRITICAL.
+
+---
+
+### Bai 3.5: Fix CVE — Sửa Dockerfile để Giảm Severity
+
+**Mục tiêu**: Thực hành fix CVE CRITICAL/HIGH trong Dockerfile bằng cách upgrade packages, đổi base image, và pin version — rồi scan lại để xác nhận.
+
+**Bước 1: Tạo Dockerfile có nhiều CVE (base image cũ, không upgrade)**
+Tạo thư mục `Bai_3_5/` với file sau:
+
+**`Bai_3_5/app.py`** — Copy từ Bài 1: `cp Bai_1/app.py Bai_3_5/app.py`
+
+**`Bai_3_5/Dockerfile.vulnerable`** — Dockerfile CÓ lỗ hổng:
+```dockerfile
+# Dùng base image cũ → có nhiều CVE chưa được patch
+FROM python:3.11-alpine
+
+WORKDIR /app
+COPY app.py .
+
+# KHÔNG chạy apk upgrade → các package trong base image vẫn giữ version cũ, đầy CVE
+# Đây là lỗi phổ biến trong Production: build xong, không update security patches
+
+ENV APP_VERSION=v3.0.0-vulnerable
+EXPOSE 8080
+CMD ["python", "app.py"]
+```
+
+Build và scan để thấy CVE:
+```bash
+# Build image có lỗ hổng
+sudo docker build -t my-python-app:vulnerable -f Bai_3_5/Dockerfile.vulnerable Bai_3_5/
+
+# Scan image này — ghi nhận SỐ LƯỢNG CVE CRITICAL/HIGH
+trivy image --severity CRITICAL,HIGH my-python-app:vulnerable
+# Kết quả: Sẽ thấy nhiều CVE CRITICAL/HIGH (vì base image chưa được update security patches)
+```
+
+**Bước 2: Fix Dockerfile — 3 kỹ thuật chính**
+
+**`Bai_3_5/Dockerfile.fixed`** — Dockerfile đã FIX CVE:
+```dockerfile
+# [FIX 1] Dùng base image version CỤ THỂ (pin version) thay vì tag trôi nổi
+# Tránh dùng :latest vì không kiểm soát được base image thay đổi thế nào
+FROM python:3.11.9-alpine3.19
+
+WORKDIR /app
+
+# [FIX 2] Chạy apk upgrade ĐỂ PATCH tất cả security vulnerabilities trong OS packages
+# --no-cache: Không lưu cache index → giảm image size
+# Đây là bước QUAN TRỌNG NHẤT để giảm CVE trong Production
+RUN apk upgrade --no-cache
+
+# [FIX 3] Ghim version của package bổ sung (nếu có cài thêm)
+# Ví dụ: RUN apk add --no-cache curl=8.5.0-r0
+# → Đảm bảo build reproducible, không bị surprise khi package update
+
+COPY app.py .
+
+# Non-root user (Best Practice từ Bài 2)
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN chown -R appuser:appgroup /app
+USER appuser
+
+ENV APP_VERSION=v3.0.0-fixed
+EXPOSE 8080
+CMD ["python", "app.py"]
+```
+
+Build và scan lại:
+```bash
+# Build image đã fix
+sudo docker build -t my-python-app:fixed -f Bai_3_5/Dockerfile.fixed Bai_3_5/
+
+# Scan lại — so sánh với image vulnerable
+trivy image --severity CRITICAL,HIGH my-python-app:fixed
+# Kết quả mong đợi: SỐ LƯỢNG CVE CRITICAL/HIGH giảm đáng kể hoặc bằng 0
+```
+
+**Bước 3: So sánh kết quả trước/sau khi fix**
+```bash
+# So sánh số lượng CVE giữa 2 image
+echo "=== VULNERABLE IMAGE ==="
+trivy image --format json my-python-app:vulnerable | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+for target in data.get('Results',[]):
+    type_=target.get('Type','')
+    vulns=target.get('Vulnerabilities',[])
+    crit=sum(1 for v in vulns if v.get('Severity')=='CRITICAL')
+    high=sum(1 for v in vulns if v.get('Severity')=='HIGH')
+    med=sum(1 for v in vulns if v.get('Severity')=='MEDIUM')
+    low=sum(1 for v in vulns if v.get('Severity')=='LOW')
+    print(f'  [{type_}] CRITICAL:{crit} HIGH:{high} MEDIUM:{med} LOW:{low}')
+"
+
+echo ""
+echo "=== FIXED IMAGE ==="
+trivy image --format json my-python-app:fixed | python3 -c "
+import json,sys
+data=json.load(sys.stdin)
+for target in data.get('Results',[]):
+    type_=target.get('Type','')
+    vulns=target.get('Vulnerabilities',[])
+    crit=sum(1 for v in vulns if v.get('Severity')=='CRITICAL')
+    high=sum(1 for v in vulns if v.get('Severity')=='HIGH')
+    med=sum(1 for v in vulns if v.get('Severity')=='MEDIUM')
+    low=sum(1 for v in vulns if v.get('Severity')=='LOW')
+    print(f'  [{type_}] CRITICAL:{crit} HIGH:{high} MEDIUM:{med} LOW:{low}')
+"
+```
+
+**Bước 4: Kịch bản fix CVE thực tế**
+
+Khi Trivy phát hiện CVE, thứ tự ưu tiên fix như sau:
+
+| Ưu tiên | Kỹ thuật | Khi nào dùng | Ví dụ |
+|---|---|---|---|
+| 1 | `apk upgrade --no-cache` | Fix CVE trong OS packages (Alpine) | CVE trong `libssl`, `musl` |
+| 2 | Pin base image version | Tránh base image bị thay đổi bất ngờ | `python:3.11.9-alpine3.19` thay vì `:latest` |
+| 3 | Pin package version | Fix CVE trong package bổ sung | `apk add curl=8.5.0-r0` |
+| 4 | Đổi base image nhỏ hơn | Giảm bề mặt tấn công | Dùng `alpine` thay vì `full`, dùng `slim` thay vì `full` |
+| 5 | Multi-stage build | Loại bỏ build tools khỏi runtime image | Xem lại Day 6 — chỉ giữ JRE, bỏ JDK |
+| 6 | `.trivyignore` (CUỐI CÙNG) | CVE chưa có patch, tạm bỏ qua | Ghi lý do + link issue trong comment |
+
+```bash
+# Dọn dẹp
+sudo docker rmi my-python-app:vulnerable my-python-app:fixed
+```
+
+**Điểm quan trọng cần hiểu**:
+- **`apk upgrade` là bước rẻ nhất**: Không cần đổi code, chỉ cần 1 dòng RUN → fix phần lớn CVE OS packages.
+- **Pin version = Reproducible build**: `python:3.11.9-alpine3.19` luôn cho cùng kết quả, `python:3.11-alpine` có thể thay đổi nội dung khi Docker Hub update.
+- **`.trivyignore` KHÔNG PHẢI là fix**: Nó chỉ ẩn CVE khỏi report, lỗ hổng vẫn tồn tại. Chỉ dùng khi chưa có patch và phải ghi lý do + deadline fix.
+- **Scan trong CI/CD**: Luôn thêm `trivy image --exit-code 1 --severity CRITICAL,HIGH` vào pipeline. Nếu có CVE mới → build FAIL → buộc phải fix trước khi deploy.
+
+---
+
+### Góc nhìn thực tế: Trivy trong Production — Sự thật phía sau
+
+#### Trivy là gì?
+
+Trivy (by Aqua Security) là scanner mã nguồn mở, quét CVE trong:
+- **Docker Image** — OS packages (apk, apt, rpm)
+- **Library dependencies** — npm, pip, maven, go...
+- **IaC files** — Terraform, Dockerfile, K8s manifest
+- **Secrets** — API key, password leak trong code
+
+#### Thực tế: Dự án có dùng Trivy để fix không?
+
+**Có, nhưng tỷ lệ fix thực tế thấp hơn bạn nghĩ.**
+
+| Loại dự án | Dùng Trivy? | Fix thực tế? |
+|---|---|---|
+| **Large tech** (Google, Meta, Netflix) | Có, tích hợp chặt vào CI/CD | Fix CRITICAL ngay, HIGH theo sprint |
+| **Fintech / Banking** | Bắt buộc — compliance (PCI-DSS, SOC2) | Fix CRITICAL/HIGH trước release |
+| **Startup / SMB** | Thỉnh thoảng scan | Thường chỉ `.trivyignore` hoặc bỏ qua |
+| **Open source** | Ít — thường thiếu CI/CD chặt | Rất hiếm fix, trừ khi có security team |
+| **Government** | Bắt buộc — audit định kỳ | Fix theo quy trình, chậm nhưng chắc |
+
+#### Workflow thực tế trong dự án chuyên nghiệp
+
+```
+Code Push → CI/CD Pipeline
+                │
+                ▼
+        ┌───────────────┐
+        │  Trivy Scan   │
+        └──────┬────────┘
+               │
+        ┌──────▼────────┐     CRITICAL/HIGH
+        │  Có CVE?      │─────►  FAIL pipeline
+        │               │     → Block deploy
+        └──────┬────────┘
+               │ 0 CRITICAL/HIGH
+        ┌──────▼────────┐
+        │  Allow deploy │
+        └───────────────┘
+```
+
+#### Tỷ lệ fix CVE thực tế
+
+```
+100% CVE phát hiện bởi Trivy
+     │
+     ├── 60-70%: Fix bằng apk/apt upgrade → XONG (1 dòng RUN)
+     ├── 15-20%: .trivyignore (chưa có patch, false positive)
+     ├──  5-10%: Đổi base image / upgrade dependency
+     └──  5-10%: Thực sự fix code / config
+```
+
+#### Xu hướng mới: Build image sạch từ đầu thay vì scan sau
+
+| Xu hướng | Mô tả | Ví dụ |
+|---|---|---|
+| **Chainguard Images** | Base image được build để **0 CVE** ngay từ đầu | `cgr.dev/chainguard/python:latest` |
+| **Docker Scout** | Tích hợp sẵn trong Docker Desktop, UI dễ dùng | `docker scout cves <image>` |
+| **SBOM** | Software Bill of Materials — liệt kê mọi thành phần trong image | `trivy sbom <image>` |
+| **Distroless** | Image không có shell, package manager → bề mặt tấn công cực nhỏ | `gcr.io/distroless/python3` |
+
+#### Trivy vs các scanner khác
+
+| Công cụ | Ưu điểm | Nhược điểm |
+|---|---|---|
+| **Trivy** | Miễn phí, nhanh, dễ dùng, scan nhiều loại | Chỉ scan, không tự fix |
+| **Snyk** | Scan + auto fix PR, UI tốt | Trả phí cho tính năng đủ dùng |
+| **Grype** | Nhanh, bởi Anchore (cộng đồng security) | Ít tính năng hơn Trivy |
+| **Docker Scout** | Tích hợp sẵn trong Docker Desktop | Mới, cộng đồng ít |
+
+#### Bài học rút ra
+
+1. **Scan ≠ Fix**: Trivy chỉ chỉ ra vấn đề, fix là trách nhiệm của team.
+2. **`apk upgrade` fix được 60-70% CVE** — chỉ 1 dòng, không lý do gì không làm.
+3. **`.trivyignore` là "nút snooze"** — tạm ẩn thay vì fix thật. Phải ghi lý do + deadline, không được quên.
+4. **Xu hướng đang đổi**: Từ "build xong scan" → "build image sạch từ đầu" (Chainguard, Distroless, SBOM).
 
 ---
 
@@ -537,38 +793,40 @@ sudo docker stop prod-app && sudo docker rm prod-app
 
 ---
 
-## Cau hoi suy ngam
+## Câu hỏi suy ngẫm
 
-1. **Tai sao khong nen luu file `.env` hoac API Key truc tiep vao Docker Image?**
-   > Tra loi: Vi bat ky ai co quyen `docker inspect` image deu co the doc duoc tat ca ENV variables (ke ca khi container khong chay). Day la nguyen nhan chinh khi credentials bi lo ra ngoai. Thay vao do, dung:
-   > - `docker run -e API_KEY=xxx` (env vars tai runtime).
-   > - Docker Secrets (Docker Swarm) hoac Kubernetes Secrets.
-   > - BuildKit `--mount=type=secret` (da hoc o Day 3).
+1. **Tại sao không nên lưu file `.env` hoặc API Key trực tiếp vào Docker Image?**
+   > Trả lời: Vì bất kỳ ai có quyền `docker inspect` image đều có thể đọc được tất cả ENV variables (kể cả khi container không chạy). Đây là nguyên nhân chính khi credentials bị lộ ra ngoài. Thay vào đó, dùng:
+   > - `docker run -e API_KEY=xxx` (env vars tại runtime).
+   > - Docker Secrets (Docker Swarm) hoặc Kubernetes Secrets.
+   > - BuildKit `--mount=type=secret` (đã học ở Day 3).
 
-2. **Lam the nao de Docker container tu khoi dong lai khi Server bi Restart?**
-   > Tra loi: Dung `--restart always` hoac `--restart unless-stopped` khi `docker run`.
-   > - `--restart always`: Container tu khoi dong lai SAU KHI Docker daemon restart (khi server boot). Nhung luu y: ngay ca khi ban `docker stop` thu cong, no van restart khi daemon restart.
-   > - `--restart unless-stopped`: Uu tien hon — giong `always` nhung NEU ban da `docker stop` thu cong, no SE KHONG restart lai sau khi daemon restart. Day la lua chon an toan hon cho Production.
+2. **Làm thế nào để Docker container tự khởi động lại khi Server bị Restart?**
+   > Trả lời: Dùng `--restart always` hoặc `--restart unless-stopped` khi `docker run`.
+   > - `--restart always`: Container tự khởi động lại SAU KHI Docker daemon restart (khi server boot). Nhưng lưu ý: ngay cả khi bạn `docker stop` thủ công, nó vẫn restart khi daemon restart.
+   > - `--restart unless-stopped`: Ưu tiên hơn — giống `always` nhưng NẾU bạn đã `docker stop` thủ công, nó SẼ KHÔNG restart lại sau khi daemon restart. Đây là lựa chọn an toàn hơn cho Production.
 
-3. **Y nghia cua viec dung `docker push` so voi viec dung `docker save` ra file `.tar`?**
-   > Tra loi:
-   > - `docker push`: Upload image len Registry (Docker Hub, ECR, GCR). Phu hop cho CI/CD, chia se giua teams, deploy tu bat ky dau nao co internet. Tu dong quan ly version qua tags.
-   > - `docker save`: Xuat image ra file `.tar` local. Phu hop cho "air-gapped" environments (khong co internet), transfer bang USB hoac internal network. Khong co version management, phai tu quan ly file tar.
-   > - **Trong Production**: Luon dung `docker push` + Registry vi no tich hop voi CI/CD, ho tro RBAC (phan quyen), va co audit log.
+3. **Ý nghĩa của việc dùng `docker push` so với việc dùng `docker save` ra file `.tar`?**
+   > Trả lời:
+   > - `docker push`: Upload image lên Registry (Docker Hub, ECR, GCR). Phù hợp cho CI/CD, chia sẻ giữa teams, deploy từ bất kỳ đâu có internet. Tự động quản lý version qua tags.
+   > - `docker save`: Xuất image ra file `.tar` local. Phù hợp cho "air-gapped" environments (không có internet), transfer bằng USB hoặc internal network. Không có version management, phải tự quản lý file tar.
+   > - **Trong Production**: Luôn dùng `docker push` + Registry vì nó tích hợp với CI/CD, hỗ trợ RBAC (phân quyền), và có audit log.
 
-4. **Neu container bi OOMKilled (Exit code 137), ban lam gi?**
-   > Tra loi:
-   > 1. Kiem tra: `docker inspect <c> --format '{{.State.OOMKilled}}'` — neu `true`, container bi kill vi vuot qua gioi han RAM.
-   > 2. Tang memory limit: `--memory 1g` thay vi `256m`.
-   > 3. Phan tich memory leak trong app: `docker stats <c>` de xem xu huong RAM theo thoi gian.
-   > 4. Neu app can nhieu RAM de xu ly (vi du: Java heap), cau hinh JVM flags: `-Xmx512m -Xms256m`.
+4. **Nếu container bị OOMKilled (Exit code 137), bạn làm gì?**
+   > Trả lời:
+   > 1. Kiểm tra: `docker inspect <c> --format '{{.State.OOMKilled}}'` — nếu `true`, container bị kill vì vượt quá giới hạn RAM.
+   > 2. Tăng memory limit: `--memory 1g` thay vì `256m`.
+   > 3. Phân tích memory leak trong app: `docker stats <c>` để xem xu hướng RAM theo thời gian.
+   > 4. Nếu app cần nhiều RAM để xử lý (ví dụ: Java heap), cấu hình JVM flags: `-Xmx512m -Xms256m`.
 
 ---
 
 ## Trang thai hoan thanh (Status)
-- [ ] Bai 1: Docker Hub — Tag, Push, Pull
-- [ ] Bai 2: Security — Non-root User va Resource Limits
+- [x] Bai 1: Docker Hub — Tag, Push, Pull (09/05)
+- [x] Bai 2: Security — Non-root User va Resource Limits (09/05)
 - [ ] Bai 3: Security Scanning voi Trivy
+- [ ] Bai 3.5: Fix CVE — Sua Dockerfile de Giam Severity
+- [ ] Goc nhin thuc te: Trivy trong Production
 - [ ] Bai 4: GitHub Actions — Tu dong Build & Push
 - [ ] Bai 5: Tong hop — Production-ready Dockerfile
 - [ ] Tra loi cac cau hoi suy ngam

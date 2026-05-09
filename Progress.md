@@ -8,7 +8,7 @@
 - [x] **Day 4**: Networking & Data Persistence (22/04)
 - [x] **Day 5**: Docker Compose (Multi-service) (26/04)
 - [x] **Day 6**: Debug & Optimization (Hoàn thành 27/04)
-- [ ] **Day 7**: CI/CD & Production Best Practices (Đã cập nhật nội dung 05/05)
+- [ ] **Day 7**: CI/CD & Production Best Practices (Bai 1-2 hoàn thành 09/05, còn Bai 3-5)
 - [ ] **Day 8**: CI/CD Advanced — Multi-environment, Health Checks & Deployment Strategies (Đã tạo nội dung 05/05)
 
 ---
@@ -70,22 +70,23 @@
     - Cách dọn dẹp hệ thống bằng `docker image prune` và `docker system prune`.
 - **Đã fix:** Đồng bộ hóa định dạng trả lời câu hỏi trong toàn bộ các file README từ Day 01 đến Day 06 để khớp với hệ thống script `verify.sh`.
 
-### 🗓️ Day 7: 05/05/2026 — Cập nhật nội dung
-- **Trạng thái:** Đã tái cấu trúc toàn bộ nội dung Day 7, chưa thực hành.
-- **Đã hoàn thành:**
-    - [x] **Rewrite README.md**: Mở rộng từ 3 bài → 5 bài tập chi tiết với bước cụ thể và giải thích sâu.
-    - [x] **Rewrite verify_day7.sh**: Cập nhật script verify theo phong cách RCA, phủ kín 5 bài tập (37+ check items).
-    - [x] **Bai 1**: Docker Hub — Tag, Push, Pull (end-to-end workflow).
-    - [x] **Bai 2**: Non-root User + Resource Limits (chown ordering, memory/CPU limits, restart policy, OOMKilled).
-    - [x] **Bai 3**: Trivy Security Scanning (install, scan, severity filter, JSON export, .trivyignore).
-    - [x] **Bai 4**: GitHub Actions CI/CD (workflow file, Secrets, Trivy trong pipeline, commit SHA tagging).
-    - [x] **Bai 5**: Tong hop Production-ready Dockerfile (checklist 10 items).
-- **Kiến thức mới:**
-    - `docker tag` chỉ tạo alias (cùng image ID), không copy image.
+### 🗓️ Day 7: 09/05/2026 — Thực hành
+- **Trạng thái:** Đã hoàn thành Bai 1 & Bai 2. Còn Bai 3-5.
+- **Đã thực hành:**
+    - [x] **Bai 1**: Docker Hub — Tag, Push, Pull. Đã build image, tag theo convention `username/image:tag`, push lên Docker Hub, xóa local, pull lại và chạy container thành công.
+    - [x] **Bai 2**: Non-root User + Resource Limits. Đã tạo Dockerfile với `addgroup/adduser`, `chown`, `USER`. Chạy container với `--memory 256m --cpus 0.5 --restart unless-stopped`. Kiểm tra `whoami = appuser`, permission denied khi ghi `/etc`. Test restart policy với `tini` (PID 1 signal handling).
+- **Chưa thực hành:**
+    - [ ] **Bai 3**: Trivy Security Scanning (install, scan, severity filter, JSON export, .trivyignore).
+    - [ ] **Bai 4**: GitHub Actions CI/CD (workflow file, Secrets, Trivy trong pipeline, commit SHA tagging).
+    - [ ] **Bai 5**: Tong hop Production-ready Dockerfile (checklist 10 items).
+- **Kiến thức mới (từ thực hành):**
+    - `docker tag` chỉ tạo alias (cùng image ID), không copy image — xác nhận bằng `docker images`.
     - Thứ tự QUAN TRỌNG: `COPY` → `chown` → `USER` — sai thứ tự sẽ lỗi quyền.
     - `--restart unless-stopped` ưu tiên hơn `--restart always` cho Production.
     - OOMKilled (Exit code 137) — container bị kill khi vượt memory limit.
-    - Trivy `exit-code: '1'` trong CI/CD — fail pipeline nếu phát hiện CVE CRITICAL.
+    - **PID 1 signal handling**: Python đứng PID 1 sẽ ignore SIGTERM → `kill 1` không crash container → RestartCount = 0. Fix bằng `tini`: `RUN apk add --no-cache tini` + `ENTRYPOINT ["/sbin/tini", "--"]`.
+    - **Docker group fix**: `sudo docker build` dùng root's buildx (bản cũ) → lỗi API mismatch. Fix: `sudo usermod -aG docker $USER` + `newgrp docker` để chạy `docker` không cần sudo.
+    - `docker images` (có s) mới đúng — `docker image` là subcommand cần thêm arg.
 
 ### 🗓️ Day 8: 05/05/2026 — Tạo nội dung mới
 - **Trạng thái:** Đã tạo cấu trúc Day 8 (README.md + verify_day8.sh), chưa thực hành.
