@@ -9,7 +9,64 @@
 - [x] **Day 5**: Docker Compose (Multi-service) (26/04)
 - [x] **Day 6**: Debug & Optimization (Hoàn thành 27/04)
 - [ ] **Day 7**: CI/CD & Production Best Practices (Bai 1-2 hoàn thành 09/05, còn Bai 3-5)
-- [ ] **Day 8**: CI/CD Advanced — Multi-environment, Health Checks & Deployment Strategies (Đã tạo nội dung 05/05)
+- [ ] **Day 8**: CI/CD Advanced — Multi-environment, Health Checks & Deployment Strategies (Đã tạo nội dung 05/05, chưa thực hành)
+
+---
+
+## 📊 Tổng hợp kiến thức (cập nhật 10/05/2026)
+
+> Xem thêm: **`REFERENCE.md`** (cheatsheet lệnh + 12 sai lầm thường gặp + debug + production checklist).
+
+### Day 1: Bản chất Docker
+- Docker giải quyết "Works on my machine" — đóng gói app + runtime + dependencies vào container.
+- **Kiến trúc**: Client → Daemon → Registry → Container.
+- **Docker vs VM**: Docker chia sẻ kernel Host, dùng **Namespaces** (cách ly) + **cgroups** (giới hạn CPU/RAM). VM cần Guest OS riêng → nặng, chậm.
+- **Image vs Container**: Image = read-only "bản thiết kế", Container = instance đang chạy. 1 Image → nhiều Container.
+
+### Day 2: Docker CLI
+- Vòng đời: `Created` → `Running` → `Paused` → `Stopped` → `Deleted`.
+- **Stop vs Kill**: `docker stop` gửi SIGTERM (lịch sự, cho 10s dọn dẹp), `docker kill` gửi SIGKILL (thô bạo, ngắt ngay).
+- **Restart policy**: `unless-stopped` ưu tiên hơn `always` cho Production.
+- **Dọn dẹp**: `docker system prune`, `docker image prune`, `docker rm -f $(docker ps -aq)`.
+
+### Day 3: Dockerfile & Image
+- **CMD vs ENTRYPOINT**: CMD có thể override, ENTRYPOINT không. Kết hợp: ENTRYPOINT làm executable, CMD làm default args.
+- **COPY vs ADD**: Ưu tiên COPY (tường minh), ADD tự giải nén tar + download URL (tránh dùng).
+- **.dockerignore**: Loại file rác khỏi build context → build nhanh + bảo mật.
+- **Layer Caching**: "Ít thay đổi lên TRÊN, hay thay đổi xuống DƯỚI". Tách `COPY pom.xml` riêng trước `COPY src`.
+- **Bảo mật Secrets lúc build**: Dùng BuildKit `--mount=type=secret` hoặc Multi-stage build. Tuyệt đối không dùng ARG cho secrets.
+
+### Day 4: Networking & Volume
+- **User-defined Bridge** (khuyên dùng): Hỗ trợ DNS — gọi container bằng tên thay vì IP.
+- **Bind Mount** (`-v /host/path:/container/path`): Cho Dev — code thay đổi ngay lập tức.
+- **Named Volume** (`-v vol-name:/container/path`): Cho Prod — data tồn tại khi xóa container.
+- **Debug Network**: `nslookup`, `ping`, `curl -v` bên trong container.
+
+### Day 5: Docker Compose
+- Thay vì 10 lệnh `docker run` → khai báo tất cả vào `docker-compose.yml`.
+- Compose tự tạo Network riêng + DNS nội bộ (service gọi nhau bằng tên).
+- **`.env`**: Tách cấu hình nhạy cảm (password, port) ra file riêng. Kiểm tra bằng `docker compose config`.
+- **`depends_on`**: Chỉ đảm bảo container start, KHÔNG đảm bảo app sẵn sàng → cần `healthcheck` + `condition: service_healthy`.
+
+### Day 6: Debug & Optimization
+- **Debug 4 bước**: `docker logs` → `docker inspect` → `docker exec` → `docker stats`.
+- **Multi-stage Build**: Tách stage build (to, đầy đủ tools) và stage runtime (nhỏ, chỉ JRE). Kết quả: ~800MB → ~100MB.
+- **Alpine dùng musl libc** thay vì glibc → lỗi "missing shared library" với một số thư viện. Fix bằng `gcompat` hoặc dùng `-slim`.
+
+### Day 7: CI/CD & Production
+- **Docker Hub**: `docker login` → `docker build -t user/app:v1` → `docker push`. `docker tag` chỉ tạo alias (cùng image ID).
+- **Non-root User**: Thứ tự BẮT BUỘC: `COPY` → `chown` → `USER`. Sai thứ tự = lỗi quyền.
+- **Resource Limits**: `--memory 256m --cpus 0.5`. Exit code 137 = OOMKilled.
+- **PID 1 Signal Handling**: Python/Node ở PID 1 ignore SIGTERM. Fix bằng `tini`.
+- **Trivy**: Scan CVE. `apk upgrade --no-cache` fix 60-70% CVE (1 dòng). `.trivyignore` chỉ ẩn CVE, KHÔNG fix thật.
+- **GitHub Actions**: Checkout → Login → Build & Push → Trivy Scan. Dùng Secrets cho token.
+
+### Day 8: CI/CD Advanced
+- **Health Check**: `starting` → `healthy` → `unhealthy`. Docker KHÔNG tự kill container khi unhealthy. `curl -f` là bắt buộc.
+- **depends_on condition**: `service_healthy` (đợi app sẵn sàng) vs `service_started` (chỉ đợi container start).
+- **Deployment Strategies**: Rolling Update (thay từng cái), Blue-Green (2 version song song, `nginx -s reload` switch zero downtime), Canary (% nhỏ traffic).
+- **Multi-environment Pipeline**: `needs` tạo chuỗi phụ thuộc, `environment: production` + manual approval, `if: always()` cho cleanup.
+- **Auto-test**: Unit Test (mỗi commit) → Integration Test (sau build) → Smoke Test (sau deploy staging).
 
 ---
 
